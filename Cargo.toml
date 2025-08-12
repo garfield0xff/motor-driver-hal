@@ -1,12 +1,14 @@
 [package]
 name = "motor-driver-hal"
 description = "motor-driver using embedded-hal for linux"
+homepage = "https://github.com/garfield0xff"
+version = "0.1.0"
 authors = ["Garfield0xff <garfield0xff@gmail.com>"]
 edition = "2021"
 repository = "https://github.com/garfield0xff/motor-driver-hal"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-keywords = ["embedded"]
+keywords = ["embedded-hal","motor-driver","hal"]
 categories = ["embedded"]
 
 [dependencies]
