@@ -1,8 +1,13 @@
-//! STM32 motor control example
+//! STM32F103C8T6 motor control example
 //! 
 //! This example demonstrates motor control using the motor-driver-hal library
-//! with STM32 HAL interfaces. This example uses no_std and is designed for
-//! STM32 microcontrollers.
+//! with STM32F103C8T6 (Blue Pill). Pin configuration:
+//! - R_EN -> PB0 (Right motor enable)
+//! - L_EN -> PB1 (Left motor enable) 
+//! - R_PWM -> PA6 (Right motor PWM - TIM3_CH1)
+//! - L_PWM -> PA7 (Left motor PWM - TIM3_CH2)
+//! - VCC -> 5V
+//! - GND -> GND
 
 #![no_std]
 #![no_main]
@@ -12,14 +17,14 @@ use motor_driver_hal::{HBridgeMotorDriver, MotorDriver};
 use embedded_hal::digital::OutputPin;
 use embedded_hal::pwm::SetDutyCycle;
 
-// Import your specific STM32 HAL crate
-use stm32f4xx_hal as hal;
+// Import STM32F1 HAL crate
+use stm32f1xx_hal as hal;
 use hal::{
     pac,
     prelude::*,
-    gpio::{Output, PushPull, Pin},
-    timer::{pwm::PwmChannels, Channel1, Channel2},
-    time::Hertz,
+    gpio::{Output, PushPull},
+    timer::pwm::PwmChannels,
+    time::U32Ext,
 };
 use cortex_m_rt::entry;
 
@@ -27,27 +32,31 @@ use cortex_m_rt::entry;
 fn main() -> ! {
     // Initialize STM32 peripherals
     let dp = pac::Peripherals::take().unwrap();
-    let cp = cortex_m::peripheral::Peripherals::take().unwrap();
+    let _cp = cortex_m::peripheral::Peripherals::take().unwrap();
     
     // Configure clocks
-    let rcc = dp.RCC.constrain();
-    let clocks = rcc.cfgr.freeze();
+    let mut rcc = dp.RCC.constrain();
+    let clocks = rcc.cfgr.freeze(&mut dp.FLASH.constrain().acr);
     
     // Configure GPIO pins
-    let gpioa = dp.GPIOA.split();
-    let gpiob = dp.GPIOB.split();
+    let mut gpioa = dp.GPIOA.split(&mut rcc.apb2);
+    let mut gpiob = dp.GPIOB.split(&mut rcc.apb2);
     
-    // Configure motor enable pins - MODIFY PIN NUMBERS AS NEEDED
-    let r_en = gpioa.pa0.into_push_pull_output();  // Right motor enable pin - 예: PA0
-    let l_en = gpioa.pa1.into_push_pull_output();  // Left motor enable pin - 예: PA1
+    // Configure motor enable pins
+    let r_en = gpiob.pb0.into_push_pull_output(&mut gpiob.crl);  // Right motor enable - PB0
+    let l_en = gpiob.pb1.into_push_pull_output(&mut gpiob.crl);  // Left motor enable - PB1
     
-    // Configure PWM timer and channels - MODIFY PIN NUMBERS AS NEEDED
-    let pins = (
-        gpioa.pa2.into_alternate(),  // TIM2 CH1 - Right motor PWM - 예: PA2
-        gpioa.pa3.into_alternate(),  // TIM2 CH2 - Left motor PWM - 예: PA3
+    // Configure PWM pins for TIM3
+    let r_pwm_pin = gpioa.pa6.into_alternate_push_pull(&mut gpioa.crl);  // TIM3 CH1 - PA6
+    let l_pwm_pin = gpioa.pa7.into_alternate_push_pull(&mut gpioa.crl);  // TIM3 CH2 - PA7
+    
+    // Configure TIM3 for PWM
+    let mut pwm = dp.TIM3.pwm(
+        (r_pwm_pin, l_pwm_pin),
+        &mut rcc.apb1,
+        1.khz(),
+        clocks,
     );
-    
-    let mut pwm = dp.TIM2.pwm_hz(pins, 1.kHz(), &clocks);
     let (mut r_pwm, mut l_pwm) = pwm.split();
     
     // Enable PWM channels

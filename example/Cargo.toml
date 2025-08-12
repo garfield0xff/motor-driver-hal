@@ -33,7 +33,7 @@ rppal = "0.22"
 embedded-hal = "1.0.0"
 
 # STM32 dependencies - uncomment for your STM32 family
-stm32f4xx-hal = { version = "0.21", features = ["rt", "stm32f407"] }
+stm32f1xx-hal = { version = "0.10", features = ["rt", "stm32f103", "medium"] }
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 panic-halt = "0.2"

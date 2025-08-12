@@ -1,10 +1,10 @@
-/* Memory layout for STM32F407VG - MODIFY FOR YOUR CHIP */
+/* Memory layout for STM32F103C8T6 (Blue Pill) */
 MEMORY
 {
   /* NOTE 1 K = 1 KiBi = 1024 bytes */
-  /* STM32F407VG has 1024K flash, 128K RAM */
-  FLASH : ORIGIN = 0x08000000, LENGTH = 1024K
-  RAM : ORIGIN = 0x20000000, LENGTH = 128K
+  /* STM32F103C8T6 has 64K flash, 20K RAM */
+  FLASH : ORIGIN = 0x08000000, LENGTH = 64K
+  RAM : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
 /* This is where the call stack will be allocated. */
