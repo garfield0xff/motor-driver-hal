@@ -1,0 +1,18 @@
+[package]
+name = "motor-driver-hal"
+description = "motor-driver using embedded-hal for linux"
+authors = ["Garfield0xff <garfield0xff@gmail.com>"]
+edition = "2021"
+repository = "https://github.com/garfield0xff/motor-driver-hal"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["embedded"]
+categories = ["embedded"]
+
+[dependencies]
+embedded-hal = "1.0.0"
+nb = "1.1.0"
+
+[features]
+default = ["std"]
+std = []
