@@ -23,13 +23,10 @@ path = "src/bin/direction_control.rs"
 name = "brake_test"
 path = "src/bin/brake_test.rs"
 
-[[bin]]
-name = "stm32_motor"
-path = "src/bin/stm32_motor.rs"
 
 [dependencies]
-motor-driver-hal = { path = ".." }
-rppal = "0.22"
+motor-driver-hal = { path = "..", features = ["rppal"] }
+rppal = "0.22.0"
 embedded-hal = "1.0.0"
 
 # STM32 dependencies - uncomment for your STM32 family

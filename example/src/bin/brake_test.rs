@@ -1,123 +1,44 @@
-//! Brake system test example
-//! 
-//! This example demonstrates the difference between brake (immediate stop)
-//! and normal stop (coast) operations. Shows how to control motor braking
-//! behavior for precise stopping control.
-
-use motor_driver_hal::{HBridgeMotorDriver, MotorDriver};
+use motor_driver_hal::{HBridgeMotorDriver, MotorDriver, GpioWrapper, PwmWrapper};
 use rppal::gpio::Gpio;
 use rppal::pwm::{Channel, Pwm, Polarity};
 use std::thread;
 use std::time::Duration;
-use embedded_hal::pwm::{SetDutyCycle, ErrorType};
-use embedded_hal::digital::OutputPin;
-
-#[derive(Debug)]
-struct PwmError;
-
-impl embedded_hal::pwm::Error for PwmError {
-    fn kind(&self) -> embedded_hal::pwm::ErrorKind {
-        embedded_hal::pwm::ErrorKind::Other
-    }
-}
-
-struct PwmWrapper {
-    pwm: Pwm,
-    max_duty: u16,
-}
-
-impl PwmWrapper {
-    fn new(channel: Channel) -> Result<Self, Box<dyn std::error::Error>> {
-        let pwm = Pwm::with_frequency(channel, 1000.0, 0.0, Polarity::Normal, true)?;
-        Ok(Self {
-            pwm,
-            max_duty: 1000,
-        })
-    }
-}
-
-impl ErrorType for PwmWrapper {
-    type Error = PwmError;
-}
-
-impl SetDutyCycle for PwmWrapper {
-    fn max_duty_cycle(&self) -> u16 {
-        self.max_duty
-    }
-
-    fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
-        let duty_percent = duty as f64 / self.max_duty as f64;
-        self.pwm.set_duty_cycle(duty_percent).map_err(|_| PwmError)?;
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-struct GpioError;
-
-impl embedded_hal::digital::Error for GpioError {
-    fn kind(&self) -> embedded_hal::digital::ErrorKind {
-        embedded_hal::digital::ErrorKind::Other
-    }
-}
-
-struct GpioOutputWrapper {
-    pin: rppal::gpio::OutputPin,
-}
-
-impl GpioOutputWrapper {
-    fn new(pin: rppal::gpio::OutputPin) -> Self {
-        Self { pin }
-    }
-}
-
-impl embedded_hal::digital::ErrorType for GpioOutputWrapper {
-    type Error = GpioError;
-}
-
-impl OutputPin for GpioOutputWrapper {
-    fn set_low(&mut self) -> Result<(), Self::Error> {
-        self.pin.set_low();
-        Ok(())
-    }
-
-    fn set_high(&mut self) -> Result<(), Self::Error> {
-        self.pin.set_high();
-        Ok(())
-    }
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    
     let gpio = Gpio::new()?;
     
-    let r_en = GpioOutputWrapper::new(gpio.get(23)?.into_output());
-    let l_en = GpioOutputWrapper::new(gpio.get(24)?.into_output());
+    let r_en = GpioWrapper::new(gpio.get(23)?.into_output());
+    let l_en = GpioWrapper::new(gpio.get(24)?.into_output());
     
-    let l_pwm = PwmWrapper::new(Channel::Pwm1)?;
-    let r_pwm = PwmWrapper::new(Channel::Pwm2)?;
-
-    let mut motor = HBridgeMotorDriver::dual_pwm(
-        r_en, 
-        l_en, 
-        r_pwm, 
-        l_pwm, 
+    let r_pwm = PwmWrapper::new(
+        Pwm::with_frequency(Channel::Pwm1, 1000.0, 0.0, Polarity::Normal, true)?, 
         1000
     );
+    let l_pwm = PwmWrapper::new(
+        Pwm::with_frequency(Channel::Pwm2, 1000.0, 0.0, Polarity::Normal, true)?, 
+        1000
+    );
+
+    let mut motor: HBridgeMotorDriver<GpioWrapper, GpioWrapper, PwmWrapper, PwmWrapper, (), ()> = 
+        HBridgeMotorDriver::dual_pwm(r_en, l_en, r_pwm, l_pwm, 1000);
     
     motor.initialize()?;
     motor.enable()?;
 
-    motor.set_speed(800)?;
-    thread::sleep(Duration::from_secs(2));
+    println!("Running motor at full speed");
+    motor.set_speed(1000)?;
+    thread::sleep(Duration::from_secs(3));
 
-    motor.brake()?;
-    thread::sleep(Duration::from_secs(2));
-
-    motor.set_speed(300)?;
-    thread::sleep(Duration::from_secs(2));
-
+    println!("Testing coast stop");
     motor.stop()?;
+    thread::sleep(Duration::from_secs(2));
+
+    println!("Running motor again");
+    motor.set_speed(1000)?;
+    thread::sleep(Duration::from_secs(3));
+
+    println!("Testing brake stop");
+    motor.brake()?;
     thread::sleep(Duration::from_secs(2));
 
     motor.disable()?;
