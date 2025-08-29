@@ -6,6 +6,9 @@ A hardware abstraction layer (HAL) for motor drivers built on top of `embedded-h
 
 - **Generic H-Bridge Support**: Works with any H-bridge motor driver
 - **Flexible Configuration**: Single PWM or dual PWM control modes
+- **Encoder Support**: Quadrature encoder reading with pulse counting
+- **Motor Control Modes**: Forward, reverse, brake, and coast control
+- **Builder Pattern**: Flexible motor driver configuration with builder pattern
 - **Platform Independent**: Built on `embedded-hal` traits
 - **Optional Features**: 
   - `std` - Standard library support (enabled by default)
@@ -88,7 +91,7 @@ The `example/` directory contains practical Raspberry Pi implementations:
 - **`speed_control`** - Variable speed control demonstration
 - **`direction_control`** - Forward/reverse direction control
 - **`brake_test`** - Motor braking functionality
-- **`encoder_monitor`** - Motor with encoder feedback (placeholder)
+- **`encoder_monitor`** - Motor with quadrature encoder feedback and pulse counting
 
 ### Running Examples
 
@@ -100,6 +103,8 @@ cd example/
 cargo run --bin basic_motor --features rppal
 cargo run --bin speed_control --features rppal
 cargo run --bin direction_control --features rppal
+cargo run --bin brake_test --features rppal
+cargo run --bin encoder_monitor --features rppal
 ```
 
 **Note**: Examples require Raspberry Pi hardware with proper GPIO connections.
@@ -125,7 +130,11 @@ pub trait MotorDriver {
     fn stop(&mut self) -> Result<(), Self::Error>;
     fn brake(&mut self) -> Result<(), Self::Error>;
     
-    // Status reading (some methods may return default values)
+    // Encoder support
+    fn set_ppr(&mut self, ppr: i16) -> Result<bool, Self::Error>;
+    fn check_ppr(&mut self) -> Result<(), Self::Error>;
+    
+    // Get Status 
     fn get_speed(&self) -> Result<i16, Self::Error>;
     fn get_direction(&self) -> Result<bool, Self::Error>;
     fn get_current(&self) -> Result<f32, Self::Error>;
@@ -137,7 +146,7 @@ pub trait MotorDriver {
 
 ### HBridgeMotorDriver
 
-The main implementation supports two configurations:
+The main implementation supports multiple configurations:
 
 ```rust
 // Single PWM configuration
@@ -145,6 +154,23 @@ HBridgeMotorDriver::single_pwm(enable_pin, pwm_channel, max_duty);
 
 // Dual PWM configuration (for bidirectional control)
 HBridgeMotorDriver::dual_pwm(enable1, enable2, pwm1, pwm2, max_duty);
+
+// Dual PWM with quadrature encoder support
+HBridgeMotorDriver::dual_pwm_with_encoder(enable1, enable2, pwm1, pwm2, encoder_a, encoder_b, max_duty);
+```
+
+### MotorDriverWrapper (Builder Pattern)
+
+Alternative wrapper with builder pattern for more flexible configuration:
+
+```rust
+use motor_driver_hal::{MotorDriverWrapper, EnablePins, PwmChannels};
+
+let mut motor = MotorDriverWrapper::builder()
+    .with_enable_pins(EnablePins::Dual(en1, en2))
+    .with_pwm_channels(PwmChannels::Dual(pwm1, pwm2))
+    .with_max_duty(1000)
+    .build();
 ```
 
 ### Speed Values
@@ -160,6 +186,21 @@ Speed is controlled using signed 16-bit integers:
 2. **Initialized**: Driver configured and ready, but motor disabled
 3. **Enabled**: Motor powered and ready to move
 4. **Disabled**: Motor power cut, safe state
+
+### Motor Control Modes
+
+- **Forward**: Positive speed values, normal rotation
+- **Reverse**: Negative speed values, opposite rotation
+- **Brake**: Active braking (both PWM channels high for dual PWM)
+- **Coast**: Free spinning (all PWM channels low)
+
+### Encoder Features
+
+For motors with encoders:
+- Quadrature encoder reading (A/B channels)
+- Pulse counting with configurable PPR (Pulses Per Revolution)
+- Encoder reset and target pulse positioning
+- Real-time pulse monitoring
 
 ## Hardware Integration
 
@@ -180,11 +221,11 @@ To use with your platform:
 
 ### Supported Platforms
 
-- **Raspberry Pi** (via `rppal` crate - included wrappers)
-- **Linux** (via `linux-embedded-hal` - optional feature)
-- **ESP32** (via `esp-hal` - bring your own wrappers)
-- **STM32** (via `stm32-hal` family - bring your own wrappers)
-- Any platform with `embedded-hal` support
+- ✅ **Raspberry Pi** (via `rppal` crate - included wrappers)
+- ✅ **Linux** (via `linux-embedded-hal` - optional feature)
+- 🧪 **ESP32** (via `esp-hal` - bring your own wrappers) *Testing in progress*
+- 🧪 **STM32** (via `stm32-hal` family - bring your own wrappers) *Testing in progress*
+- 🧪 Any platform with `embedded-hal` support *Testing in progress*
 
 ## Configuration Features
 

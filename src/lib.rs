@@ -5,7 +5,7 @@ pub mod driver;
 pub mod error;
 pub mod wrapper;
 
-pub use driver::HBridgeMotorDriver;
+pub use driver::{HBridgeMotorDriver, NoEncoder};
 pub use error::MotorDriverError;
 pub use wrapper::{MotorDriverWrapper, MotorDriverBuilder, EnablePins, PwmChannels, MotorDirection};
 
@@ -21,10 +21,13 @@ pub trait MotorDriver {
     fn brake(&mut self) -> Result<(), Self::Error>;
     fn enable(&mut self) -> Result<(), Self::Error>;
     fn disable(&mut self) -> Result<(), Self::Error>;
+    fn check_ppr(&mut self) -> Result<(), Self::Error>;
+    fn set_ppr(&mut self, ppr: i16) -> Result<bool, Self::Error>;
     fn get_speed(&self) -> Result<i16, Self::Error>;
     fn get_direction(&self) -> Result<bool, Self::Error>;
     fn get_current(&self) -> Result<f32, Self::Error>;
     fn get_voltage(&self) -> Result<f32, Self::Error>;
     fn get_temperature(&self) -> Result<f32, Self::Error>;
     fn get_fault_status(&self) -> Result<u8, Self::Error>;
+    
 }

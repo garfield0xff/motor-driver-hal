@@ -8,6 +8,14 @@ name = "basic_motor"
 path = "src/bin/basic_motor.rs"
 
 [[bin]]
+name = "brake_test"
+path = "src/bin/brake_test.rs"
+
+[[bin]]
+name = "direction_control"
+path = "src/bin/direction_control.rs"
+
+[[bin]]
 name = "encoder_monitor"
 path = "src/bin/encoder_monitor.rs"
 
@@ -16,21 +24,12 @@ name = "speed_control"
 path = "src/bin/speed_control.rs"
 
 [[bin]]
-name = "direction_control"
-path = "src/bin/direction_control.rs"
-
-[[bin]]
-name = "brake_test"
-path = "src/bin/brake_test.rs"
+name = "test"
+path = "src/bin/test.rs"
 
 
 [dependencies]
 motor-driver-hal = { path = "..", features = ["rppal"] }
 rppal = "0.22.0"
 embedded-hal = "1.0.0"
-
-# STM32 dependencies - uncomment for your STM32 family
-stm32f1xx-hal = { version = "0.10", features = ["rt", "stm32f103", "medium"] }
-cortex-m = "0.7"
-cortex-m-rt = "0.7"
-panic-halt = "0.2"
+ctrlc = "3.4"

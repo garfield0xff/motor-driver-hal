@@ -1,6 +1,39 @@
 use crate::{MotorDriver, MotorDriverError};
-use embedded_hal::digital::OutputPin;
+use embedded_hal::digital::{OutputPin, InputPin};
 use embedded_hal::pwm::SetDutyCycle;
+
+#[derive(Debug)]
+pub struct NoEncoder;
+
+#[derive(Debug)]
+pub struct NoEncoderError;
+
+impl embedded_hal::digital::Error for NoEncoderError {
+    fn kind(&self) -> embedded_hal::digital::ErrorKind {
+        embedded_hal::digital::ErrorKind::Other
+    }
+}
+
+impl embedded_hal::digital::ErrorType for NoEncoder {
+    type Error = NoEncoderError;
+}
+
+impl InputPin for NoEncoder {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok(false)
+    }
+
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
+}
+
+#[derive(Copy, Clone, PartialEq)]
+enum Level {
+    Low = 0,
+    High = 1,
+}
+
 pub struct HBridgeMotorDriver<E1, E2, P1, P2, Enc1, Enc2> {
     enable1: E1,
     enable2: Option<E2>,
@@ -10,11 +43,24 @@ pub struct HBridgeMotorDriver<E1, E2, P1, P2, Enc1, Enc2> {
     encoder2: Option<Enc2>,
     max_duty: u16,
     current_speed: i16,
+    pulse_count: i32,
+    pulse_offset: i32,
+    target_pulse: i32,
+    ppr: u16,
+    last_enc_a: Level,
+    last_enc_b: Level,
     direction: bool,
     initialized: bool,
 }
 
-impl<E1, E2, P1, P2, Enc1, Enc2> HBridgeMotorDriver<E1, E2, P1, P2, Enc1, Enc2>
+const QEM: [i8; 16] = [
+     0, -1,  1,  0,
+     1,  0,  0, -1,
+    -1,  0,  0,  1,
+     0,  1, -1,  0,
+];
+
+impl<E1, E2, P1, P2> HBridgeMotorDriver<E1, E2, P1, P2, NoEncoder, NoEncoder>
 where
     E1: OutputPin,
     E2: OutputPin,
@@ -31,6 +77,12 @@ where
             encoder2: None,
             max_duty,
             current_speed: 0,
+            pulse_count: 0,
+            pulse_offset: 0,
+            target_pulse: 0,
+            ppr: 0,
+            last_enc_a: Level::Low,
+            last_enc_b: Level::Low,
             direction: true,
             initialized: false,
         }
@@ -46,10 +98,27 @@ where
             encoder2: None,
             max_duty,
             current_speed: 0,
+            pulse_count: 0,
+            pulse_offset: 0,
+            target_pulse: 0,
+            ppr: 0,
+            last_enc_a: Level::Low,
+            last_enc_b: Level::Low,
             direction: true,
             initialized: false,
         }
     }
+}
+
+impl<E1, E2, P1, P2, Enc1, Enc2> HBridgeMotorDriver<E1, E2, P1, P2, Enc1, Enc2>
+where
+    E1: OutputPin,
+    E2: OutputPin,
+    P1: SetDutyCycle,
+    P2: SetDutyCycle,
+    Enc1: InputPin,
+    Enc2: InputPin,
+{
     
     pub fn dual_pwm_with_encoder(enable1: E1, enable2: E2, pwm1: P1, pwm2: P2, encoder1: Enc1, encoder2: Enc2, max_duty: u16) -> Self {
         Self { 
@@ -61,11 +130,16 @@ where
             encoder2: Some(encoder2),
             max_duty,
             current_speed: 0,
+            pulse_count: 0,
+            pulse_offset: 0,
+            target_pulse: 0,
+            ppr: 0,
+            last_enc_a: Level::Low,
+            last_enc_b: Level::Low,
             direction: true,
             initialized: false 
         }
     }
-
 
     fn update_pwm(&mut self) -> Result<(), MotorDriverError> {
         let duty = if self.current_speed < 0 {
@@ -89,6 +163,46 @@ where
         }
         Ok(())
     }
+
+    pub fn read_encoder(&mut self) -> Result<(), MotorDriverError> {
+        if let (Some(ref mut enc_a), Some(ref mut enc_b)) = (&mut self.encoder1, &mut self.encoder2) {
+            let level_a = if enc_a.is_high().map_err(|_| MotorDriverError::GpioError)? { 
+                Level::High 
+            } else { 
+                Level::Low 
+            };
+            let level_b = if enc_b.is_high().map_err(|_| MotorDriverError::GpioError)? { 
+                Level::High 
+            } else { 
+                Level::Low 
+            };
+
+            let index = ((self.last_enc_a as u8) << 3)
+                      | ((self.last_enc_b as u8) << 2)
+                      | ((level_a as u8) << 1)
+                      | (level_b as u8);
+            
+            self.pulse_count += QEM[index as usize] as i32;
+            self.last_enc_a = level_a;
+            self.last_enc_b = level_b;
+            
+            Ok(())
+        } else {
+            Err(MotorDriverError::HardwareFault)
+        }
+    }
+
+    pub fn get_pulse_count(&self) -> i32 {
+        self.pulse_count - self.pulse_offset
+    }
+
+    pub fn reset_encoder(&mut self) {
+        self.pulse_offset = self.pulse_count;
+    }
+
+    pub fn set_target_pulse(&mut self, target: i32) {
+        self.target_pulse = target;
+    }
 }
 
 impl<E1, E2, P1, P2, Enc1, Enc2> MotorDriver for HBridgeMotorDriver<E1, E2, P1, P2, Enc1, Enc2>
@@ -97,9 +211,11 @@ where
     E2: OutputPin,
     P1: SetDutyCycle,
     P2: SetDutyCycle,
+    Enc1: InputPin,
+    Enc2: InputPin,
 {
     type Error = MotorDriverError;
-
+    
     fn initialize(&mut self) -> Result<(), Self::Error> {
         self.enable1.set_low().map_err(|_| MotorDriverError::GpioError)?;
         if let Some(ref mut enable2) = self.enable2 {
@@ -205,6 +321,36 @@ where
         Ok(self.direction)
     }
 
+    fn set_ppr(&mut self, ppr: i16) -> Result<bool, Self::Error> {        
+        if !self.initialized {
+            return Err(MotorDriverError::NotInitialized);
+        }
+        if ppr <= 0 {
+            return Err(MotorDriverError::InvalidSpeed);
+        }
+        self.ppr = ppr as u16;
+        Ok(true)
+    }
+
+    fn check_ppr(&mut self) -> Result<(), Self::Error> {
+        if self.ppr == 0 {
+            return Err(MotorDriverError::NotInitialized);
+        }
+        
+        self.read_encoder()?;
+        
+        let current_pulse = self.get_pulse_count();
+        let current_rotation_pulse = current_pulse % (self.ppr as i32);
+        let target_rotation_pulse = self.target_pulse % (self.ppr as i32);
+        
+        if current_rotation_pulse == target_rotation_pulse {
+            Ok(())
+        } else {
+            Err(MotorDriverError::HardwareFault)
+        }
+    }
+
+
     fn get_current(&self) -> Result<f32, Self::Error> {
         Err(MotorDriverError::HardwareFault)
     }
@@ -224,3 +370,4 @@ where
         Ok(0)
     }
 }
+

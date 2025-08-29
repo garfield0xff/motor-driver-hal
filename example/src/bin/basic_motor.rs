@@ -1,8 +1,10 @@
-use motor_driver_hal::{HBridgeMotorDriver, MotorDriver, GpioWrapper, PwmWrapper};
-use rppal::gpio::Gpio;
+use motor_driver_hal::wrapper::rppal::{GpioWrapper, PwmWrapper};
+use motor_driver_hal::{HBridgeMotorDriver, MotorDriver, NoEncoder};
+use rppal::gpio::{Gpio, OutputPin};
 use rppal::pwm::{Channel, Pwm, Polarity};
 use std::thread;
 use std::time::Duration;
+
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gpio = Gpio::new()?;
@@ -19,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         1000
     );
 
-    let mut motor: HBridgeMotorDriver<GpioWrapper, GpioWrapper, PwmWrapper, PwmWrapper, (), ()> = 
+    let mut motor: HBridgeMotorDriver<GpioWrapper<OutputPin>, GpioWrapper<OutputPin>, PwmWrapper, PwmWrapper, NoEncoder, NoEncoder> = 
         HBridgeMotorDriver::dual_pwm(r_en, l_en, r_pwm, l_pwm, 1000);
     
     motor.initialize()?;

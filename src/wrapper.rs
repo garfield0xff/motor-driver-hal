@@ -27,6 +27,8 @@ pub struct MotorDriverWrapper<E1, E2, P1, P2> {
     pwm_channels: PwmChannels<P1, P2>,
     max_duty: u16,
     current_speed: i16,
+    current_pulse: i16,
+    ppr: i16,
     direction: MotorDirection,
     initialized: bool,
 }
@@ -231,6 +233,21 @@ where
         }
         Ok(0)
     }
+    
+    fn set_ppr(&mut self, ppr: i16) -> Result<bool, Self::Error> {
+        if !self.initialized {
+            return Err(MotorDriverError::NotInitialized);
+        }
+        self.ppr = ppr;
+        Ok(true)
+    }
+
+    fn check_ppr(&mut self) -> Result<(), Self::Error> {
+        if self.ppr == 0 {
+            return Err(MotorDriverError::NotInitialized);
+        }
+        Ok(())
+    }
 }
 
 pub struct MotorDriverBuilder<E1, E2, P1, P2> {
@@ -269,6 +286,8 @@ impl<E1, E2, P1, P2> MotorDriverBuilder<E1, E2, P1, P2> {
             pwm_channels: self.pwm_channels.unwrap_or(PwmChannels::None),
             max_duty: self.max_duty.unwrap_or(u16::MAX),
             current_speed: 0,
+            current_pulse: 0,
+            ppr: 0,
             direction: MotorDirection::Coast,
             initialized: false,
         }
@@ -283,9 +302,10 @@ impl<E1, E2, P1, P2> Default for MotorDriverBuilder<E1, E2, P1, P2> {
 
 #[cfg(feature = "rppal")]
 pub mod rppal {
-    use embedded_hal::digital::OutputPin;
+    use embedded_hal::digital::{OutputPin, InputPin};
     use embedded_hal::pwm::SetDutyCycle;
     use rppal::gpio::OutputPin as RppalOutputPin;
+    use rppal::gpio::InputPin as RppalInputPin;
     use rppal::pwm::Pwm;
 
     #[derive(Debug)]
@@ -303,21 +323,21 @@ pub mod rppal {
         }
     }
 
-    pub struct GpioWrapper {
-        pin: RppalOutputPin,
+    pub struct GpioWrapper<P> {
+        pin: P,
     }
 
-    impl GpioWrapper {
-        pub fn new(pin: RppalOutputPin) -> Self {
+    impl<P> GpioWrapper<P> {
+        pub fn new(pin: P) -> Self {
             Self { pin }
         }
     }
 
-    impl embedded_hal::digital::ErrorType for GpioWrapper {
+    impl<P> embedded_hal::digital::ErrorType for GpioWrapper<P> {
         type Error = RppalError;
     }
 
-    impl OutputPin for GpioWrapper {
+    impl OutputPin for GpioWrapper<RppalOutputPin> {
         fn set_low(&mut self) -> Result<(), Self::Error> {
             self.pin.set_low();
             Ok(())
@@ -326,6 +346,16 @@ pub mod rppal {
         fn set_high(&mut self) -> Result<(), Self::Error> {
             self.pin.set_high();
             Ok(())
+        }
+    }
+
+    impl InputPin for GpioWrapper<RppalInputPin> {
+        fn is_high(&mut self) -> Result<bool, Self::Error> {
+            Ok(self.pin.is_high())
+        }
+
+        fn is_low(&mut self) -> Result<bool, Self::Error> {
+            Ok(self.pin.is_low())
         }
     }
 
