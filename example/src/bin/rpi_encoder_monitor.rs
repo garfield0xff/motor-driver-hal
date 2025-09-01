@@ -1,14 +1,14 @@
-use motor_driver_hal::wrapper::rppal::{GpioWrapper, PwmWrapper};
-use motor_driver_hal::{HBridgeMotorDriver, MotorDriver};
-use rppal::gpio::{Gpio, InputPin, OutputPin};
-use rppal::pwm::{Channel, Pwm, Polarity};
+use motor_driver_hal::driver::rppal::RppalMotorDriverBuilder;
+use motor_driver_hal::MotorDriver;
+use rppal::gpio::Gpio;
+use rppal::pwm::Channel;
 use std::thread;
 use std::time::Duration;
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-fn shutdown_motor(motor: &Arc<Mutex<HBridgeMotorDriver<GpioWrapper<OutputPin>, GpioWrapper<OutputPin>, PwmWrapper, PwmWrapper, GpioWrapper<InputPin>, GpioWrapper<InputPin>>>>) {
+fn shutdown_motor<T: MotorDriver>(motor: &Arc<Mutex<T>>) {
     if let Ok(mut m) = motor.lock() {
         let _ = m.stop();
         let _ = m.disable();
@@ -19,26 +19,14 @@ fn shutdown_motor(motor: &Arc<Mutex<HBridgeMotorDriver<GpioWrapper<OutputPin>, G
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gpio = Gpio::new()?;
 
-    let r_en = GpioWrapper::new(gpio.get(23)?.into_output());
-    let l_en = GpioWrapper::new(gpio.get(24)?.into_output());
-
-    let r_pwm = PwmWrapper::new(
-        Pwm::with_frequency(Channel::Pwm1, 1000.0, 0.0, Polarity::Normal, true)?, 
-        1000
-    );
-    let l_pwm = PwmWrapper::new(
-        Pwm::with_frequency(Channel::Pwm2, 1000.0, 0.0, Polarity::Normal, true)?, 
-        1000
-    );
-
-    let enc_a = GpioWrapper::new(gpio.get(25)?.into_input_pullup());
-    let enc_b = GpioWrapper::new(gpio.get(8)?.into_input_pullup());
-
-    let motor: HBridgeMotorDriver<GpioWrapper<OutputPin>, GpioWrapper<OutputPin>, PwmWrapper, PwmWrapper, GpioWrapper<InputPin>, GpioWrapper<InputPin>> = 
-        HBridgeMotorDriver::dual_pwm_with_encoder(r_en, l_en, r_pwm, l_pwm, enc_a, enc_b, 1000);
+    let motor = RppalMotorDriverBuilder::new_rppal()
+        .with_dual_gpio_enable(&gpio, 23, 24)?
+        .with_dual_pwm_channels(Channel::Pwm1, Channel::Pwm2, 1000.0, 1000)?
+        .with_encoder_pins(&gpio, 25, 8)?
+        .with_ppr(1000)
+        .build_and_init()?;
 
     let motor = Arc::new(Mutex::new(motor));
-    motor.lock().unwrap().initialize()?;
     
     // Setup Ctrl+C handler
     let running = Arc::new(AtomicBool::new(true));

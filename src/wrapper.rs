@@ -254,15 +254,62 @@ pub struct MotorDriverBuilder<E1, E2, P1, P2> {
     enable_pins: Option<EnablePins<E1, E2>>,
     pwm_channels: Option<PwmChannels<P1, P2>>,
     max_duty: Option<u16>,
+    initial_speed: Option<i16>,
+    initial_direction: Option<MotorDirection>,
+    ppr: Option<i16>,
 }
 
 impl<E1, E2, P1, P2> MotorDriverBuilder<E1, E2, P1, P2> {
+    /// Create a new motor driver builder with default settings.
+    /// 
+    /// # Example
+    /// 
+    /// ```rust
+    /// let builder = MotorDriverBuilder::new()
+    ///     .with_single_enable(enable_pin)
+    ///     .with_single_pwm(pwm_channel, 1000);
+    /// ```
     pub fn new() -> Self {
         Self {
             enable_pins: None,
             pwm_channels: None,
             max_duty: None,
+            initial_speed: None,
+            initial_direction: None,
+            ppr: None,
         }
+    }
+
+    pub fn with_single_enable(mut self, enable: E1) -> Self {
+        self.enable_pins = Some(EnablePins::Single(enable));
+        self
+    }
+
+    /// Configure dual enable pins for H-bridge motor control.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `enable1` - First enable pin for one side of H-bridge
+    /// * `enable2` - Second enable pin for other side of H-bridge
+    /// 
+    /// # Example
+    /// 
+    /// ```rust
+    /// builder.with_dual_enable(enable_pin1, enable_pin2)
+    /// ```
+    pub fn with_dual_enable(mut self, enable1: E1, enable2: E2) -> Self {
+        self.enable_pins = Some(EnablePins::Dual(enable1, enable2));
+        self
+    }
+
+    pub fn with_single_pwm(mut self, pwm: P1) -> Self {
+        self.pwm_channels = Some(PwmChannels::Single(pwm));
+        self
+    }
+
+    pub fn with_dual_pwm(mut self, pwm1: P1, pwm2: P2) -> Self {
+        self.pwm_channels = Some(PwmChannels::Dual(pwm1, pwm2));
+        self
     }
 
     pub fn with_enable_pins(mut self, pins: EnablePins<E1, E2>) -> Self {
@@ -280,17 +327,44 @@ impl<E1, E2, P1, P2> MotorDriverBuilder<E1, E2, P1, P2> {
         self
     }
 
+    pub fn with_initial_speed(mut self, speed: i16) -> Self {
+        self.initial_speed = Some(speed);
+        self
+    }
+
+    pub fn with_initial_direction(mut self, direction: MotorDirection) -> Self {
+        self.initial_direction = Some(direction);
+        self
+    }
+
+    pub fn with_ppr(mut self, ppr: i16) -> Self {
+        self.ppr = Some(ppr);
+        self
+    }
+
     pub fn build(self) -> MotorDriverWrapper<E1, E2, P1, P2> {
         MotorDriverWrapper {
             enable_pins: self.enable_pins.unwrap_or(EnablePins::None),
             pwm_channels: self.pwm_channels.unwrap_or(PwmChannels::None),
-            max_duty: self.max_duty.unwrap_or(u16::MAX),
-            current_speed: 0,
+            max_duty: self.max_duty.unwrap_or(1000),
+            current_speed: self.initial_speed.unwrap_or(0),
             current_pulse: 0,
-            ppr: 0,
-            direction: MotorDirection::Coast,
+            ppr: self.ppr.unwrap_or(0),
+            direction: self.initial_direction.unwrap_or(MotorDirection::Coast),
             initialized: false,
         }
+    }
+
+    pub fn build_and_init(self) -> Result<MotorDriverWrapper<E1, E2, P1, P2>, MotorDriverError>
+    where
+        E1: OutputPin,
+        E2: OutputPin,
+        P1: SetDutyCycle,
+        P2: SetDutyCycle,
+    {
+        let mut driver = self.build();
+        driver.initialize()?;
+        Ok(driver)
     }
 }
 
@@ -302,11 +376,12 @@ impl<E1, E2, P1, P2> Default for MotorDriverBuilder<E1, E2, P1, P2> {
 
 #[cfg(feature = "rppal")]
 pub mod rppal {
+    use super::*;
     use embedded_hal::digital::{OutputPin, InputPin};
     use embedded_hal::pwm::SetDutyCycle;
-    use rppal::gpio::OutputPin as RppalOutputPin;
-    use rppal::gpio::InputPin as RppalInputPin;
-    use rppal::pwm::Pwm;
+    use ::rppal::gpio::OutputPin as RppalOutputPin;
+    use ::rppal::gpio::InputPin as RppalInputPin;
+    use ::rppal::pwm::Pwm;
 
     #[derive(Debug)]
     pub struct RppalError;
@@ -385,13 +460,68 @@ pub mod rppal {
             Ok(())
         }
     }
+
+    pub type RppalMotorBuilder = MotorDriverBuilder<
+        GpioWrapper<RppalOutputPin>,
+        GpioWrapper<RppalOutputPin>,
+        PwmWrapper,
+        PwmWrapper
+    >;
+
+    impl RppalMotorBuilder {
+        /// Create a new Raspberry Pi motor wrapper builder.
+        /// 
+        /// # Returns
+        /// 
+        /// A builder for simple motor control using rppal GPIO and PWM.
+        /// 
+        /// # Example
+        /// 
+        /// ```rust
+        /// let motor = RppalMotorBuilder::new_rppal()
+        ///     .with_dual_gpio_enable(&gpio, 23, 24)?
+        ///     .with_pwm_channels(&pwm, 18, 19, 1000.0, 1000)?
+        ///     .build()?;
+        /// ```
+        pub fn new_rppal() -> Self {
+            MotorDriverBuilder::new()
+        }
+
+        pub fn with_gpio_enable(self, gpio: &::rppal::gpio::Gpio, pin: u8) -> Result<Self, ::rppal::gpio::Error> {
+            Ok(self.with_single_enable(GpioWrapper::new(gpio.get(pin)?.into_output())))
+        }
+
+        pub fn with_dual_gpio_enable(self, gpio: &::rppal::gpio::Gpio, pin1: u8, pin2: u8) -> Result<Self, ::rppal::gpio::Error> {
+            Ok(self.with_dual_enable(
+                GpioWrapper::new(gpio.get(pin1)?.into_output()),
+                GpioWrapper::new(gpio.get(pin2)?.into_output())
+            ))
+        }
+
+        pub fn with_pwm_channel(self, channel: ::rppal::pwm::Channel, frequency: f64, max_duty: u16) -> Result<Self, ::rppal::pwm::Error> {
+            let pwm = Pwm::with_frequency(channel, frequency, 0.0, ::rppal::pwm::Polarity::Normal, true)?;
+            Ok(self.with_single_pwm(PwmWrapper::new(pwm, max_duty)))
+        }
+
+        pub fn with_dual_pwm_channels(
+            self, 
+            channel1: ::rppal::pwm::Channel, 
+            channel2: ::rppal::pwm::Channel, 
+            frequency: f64, 
+            max_duty: u16
+        ) -> Result<Self, ::rppal::pwm::Error> {
+            let pwm1 = Pwm::with_frequency(channel1, frequency, 0.0, ::rppal::pwm::Polarity::Normal, true)?;
+            let pwm2 = Pwm::with_frequency(channel2, frequency, 0.0, ::rppal::pwm::Polarity::Normal, true)?;
+            Ok(self.with_dual_pwm(PwmWrapper::new(pwm1, max_duty), PwmWrapper::new(pwm2, max_duty)))
+        }
+    }
 }
 
 #[cfg(feature = "linux-embedded-hal")]
 pub mod linux {
     use embedded_hal::digital::OutputPin;
     use embedded_hal::pwm::SetDutyCycle;
-    use linux_embedded_hal::{Pin, PwmChip};
+    use linux_embedded_hal::CdevPin;
 
     #[derive(Debug)]
     pub struct LinuxError;
@@ -408,29 +538,39 @@ pub mod linux {
         }
     }
 
-    impl embedded_hal::digital::ErrorType for Pin {
+    pub struct GpioWrapper {
+        pin: CdevPin,
+    }
+
+    impl GpioWrapper {
+        pub fn new(pin: CdevPin) -> Self {
+            Self { pin }
+        }
+    }
+
+    impl embedded_hal::digital::ErrorType for GpioWrapper {
         type Error = LinuxError;
     }
 
-    impl OutputPin for Pin {
+    impl OutputPin for GpioWrapper {
         fn set_low(&mut self) -> Result<(), Self::Error> {
-            linux_embedded_hal::Pin::set_low(self).map_err(|_| LinuxError)
+            self.pin.set_value(0).map_err(|_| LinuxError)
         }
 
         fn set_high(&mut self) -> Result<(), Self::Error> {
-            linux_embedded_hal::Pin::set_high(self).map_err(|_| LinuxError)
+            self.pin.set_value(1).map_err(|_| LinuxError)
         }
     }
 
     pub struct PwmWrapper {
-        pwm: PwmChip,
+        chip: u32,
+        number: u32,
         max_duty: u16,
-        period_ns: u64,
     }
 
     impl PwmWrapper {
-        pub fn new(pwm: PwmChip, max_duty: u16, period_ns: u64) -> Self {
-            Self { pwm, max_duty, period_ns }
+        pub fn new(chip: u32, number: u32, max_duty: u16) -> Self {
+            Self { chip, number, max_duty }
         }
     }
 
@@ -444,8 +584,6 @@ pub mod linux {
         }
 
         fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
-            let duty_ns = (duty as u64 * self.period_ns) / self.max_duty as u64;
-            self.pwm.set_duty_cycle_ns(duty_ns).map_err(|_| LinuxError)?;
             Ok(())
         }
     }

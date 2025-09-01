@@ -2,83 +2,94 @@
 
 A hardware abstraction layer (HAL) for motor drivers built on top of `embedded-hal` traits. This crate provides a generic, platform-independent interface for controlling H-bridge motor drivers commonly used in embedded systems and robotics applications.
 
-## Features
-
-- **Generic H-Bridge Support**: Works with any H-bridge motor driver
-- **Flexible Configuration**: Single PWM or dual PWM control modes
-- **Encoder Support**: Quadrature encoder reading with pulse counting
-- **Motor Control Modes**: Forward, reverse, brake, and coast control
-- **Builder Pattern**: Flexible motor driver configuration with builder pattern
-- **Platform Independent**: Built on `embedded-hal` traits
-- **Optional Features**: 
-  - `std` - Standard library support (enabled by default)
-  - `rppal` - Raspberry Pi support via rppal crate
-  - `linux-embedded-hal` - Linux GPIO support
-- **No-std Compatible**: Can be used in embedded environments
-
 ## Installation
 
-Add this to your `Cargo.toml`:
+### Basic Installation
 
 ```toml
 [dependencies]
-motor-driver-hal = "0.1.0"
+motor-driver-hal = "0.1.3"
 ```
 
-For `no_std` environments, disable the default features:
+### Platform-Specific Installation
 
+For **Raspberry Pi** projects:
 ```toml
 [dependencies]
-motor-driver-hal = { version = "0.1.0", default-features = false }
+motor-driver-hal = { version = "0.1.3", features = ["rppal"] }
+```
+
+For **Linux GPIO** projects:
+```toml
+[dependencies]
+motor-driver-hal = { version = "0.1.3", features = ["linux-embedded-hal"] }
+```
+
+For **embedded/no_std** environments:
+```toml
+[dependencies]
+motor-driver-hal = { version = "0.1.3", default-features = false }
 ```
 
 ## Quick Start
 
-### Raspberry Pi Example
+### Raspberry Pi Example (Builder Pattern)
 
 ```rust
-use motor_driver_hal::{HBridgeMotorDriver, MotorDriver, GpioWrapper, PwmWrapper};
+use motor_driver_hal::driver::rppal::RppalMotorDriverBuilder;
+use motor_driver_hal::MotorDriver;
 use rppal::gpio::Gpio;
-use rppal::pwm::{Channel, Pwm, Polarity};
+use rppal::pwm::Channel;
 
-// Create GPIO and PWM instances
+// Initialize GPIO interface
 let gpio = Gpio::new()?;
-let r_en = GpioWrapper::new(gpio.get(23)?.into_output());
-let l_en = GpioWrapper::new(gpio.get(24)?.into_output());
 
-let r_pwm = PwmWrapper::new(
-    Pwm::with_frequency(Channel::Pwm1, 1000.0, 0.0, Polarity::Normal, true)?, 
-    1000
-);
-let l_pwm = PwmWrapper::new(
-    Pwm::with_frequency(Channel::Pwm2, 1000.0, 0.0, Polarity::Normal, true)?, 
-    1000
-);
+// Create motor driver with builder pattern
+let mut motor = RppalMotorDriverBuilder::new_rppal()
+    .with_dual_gpio_enable(&gpio, 23, 24)?        // Enable pins
+    .with_dual_pwm_channels(                      // PWM configuration:
+        Channel::Pwm1,                            //   - Channel1 
+        Channel::Pwm2,                            //   - Channel2 
+        1000.0,                                   //   - Frequency
+        1000                                      //   - Max duty
+    )?
+    .with_encoder_pins(&gpio, 25, 8)?            // Encoder pins
+    .with_ppr(1000)                              // Pulses per revolution: 1000
+    .build_and_init()?;
 
-// Create motor driver instance
-let mut motor = HBridgeMotorDriver::dual_pwm(r_en, l_en, r_pwm, l_pwm, 1000);
-
-// Initialize and use the motor
-motor.initialize()?;
+// Control the motor
 motor.enable()?;
-motor.set_speed(300)?;  // Forward speed
-motor.set_speed(-300)?; // Reverse speed
+motor.set_speed(300)?;  // 30% forward speed
+motor.set_speed(-300)?; // 30% reverse speed
 motor.stop()?;
 motor.disable()?;
 ```
 
-### Generic Example (Any Platform)
+### Linux Example (GPIO and PWM)
 
 ```rust
-use motor_driver_hal::{HBridgeMotorDriver, MotorDriver};
+use motor_driver_hal::driver::linux::LinuxMotorDriverBuilder;
+use motor_driver_hal::MotorDriver;
+use linux_embedded_hal::gpio_cdev::Chip;
 
-// Using your platform's embedded-hal implementations
-let mut motor = HBridgeMotorDriver::single_pwm(enable_pin, pwm_channel, 1000);
+// Initialize GPIO chip
+let mut chip = Chip::new("/dev/gpiochip0")?;
 
-motor.initialize()?;
+// Create motor driver with builder pattern
+let mut motor = LinuxMotorDriverBuilder::new_linux()
+    .with_dual_gpio_enable(&mut chip, 23, 24)?   // Enable pins: GPIO 23, 24
+    .with_dual_pwm_channels(                     // PWM configuration:
+        0,                                       //   - PWM chip 0
+        0, 1,                                    //   - Channels 0, 1
+        1000                                     //   - Max duty: 1000
+    )
+    .build_and_init()?;
+
+// Control the motor
 motor.enable()?;
-motor.set_speed(500)?;
+motor.set_speed(300)?;  // 30% forward speed
 motor.stop()?;
+motor.disable()?;
 ```
 
 ## Examples
@@ -87,11 +98,15 @@ The `example/` directory contains practical Raspberry Pi implementations:
 
 ### Available Examples
 
-- **`basic_motor`** - Simple dual PWM motor control
-- **`speed_control`** - Variable speed control demonstration
-- **`direction_control`** - Forward/reverse direction control
-- **`brake_test`** - Motor braking functionality
-- **`encoder_monitor`** - Motor with quadrature encoder feedback and pulse counting
+- **`rpi_basic_motor`** - Simple Raspberry Pi motor control
+- **`rpi_speed_control`** - Variable speed control on Raspberry Pi  
+- **`rpi_direction_control`** - Forward/reverse direction control on Raspberry Pi
+- **`rpi_brake_test`** - Motor braking functionality on Raspberry Pi
+- **`rpi_encoder_monitor`** - Raspberry Pi motor with encoder feedback
+- **`linux_basic_motor`** - Simple Linux GPIO motor control
+- **`linux_speed_control`** - Variable speed control on Linux
+- **`linux_direction_control`** - Forward/reverse direction control on Linux
+- **`linux_brake_test`** - Motor braking functionality on Linux
 
 ### Running Examples
 
@@ -99,15 +114,17 @@ The `example/` directory contains practical Raspberry Pi implementations:
 # Navigate to examples directory
 cd example/
 
-# Run examples on Raspberry Pi with rppal feature
-cargo run --bin basic_motor --features rppal
-cargo run --bin speed_control --features rppal
-cargo run --bin direction_control --features rppal
-cargo run --bin brake_test --features rppal
-cargo run --bin encoder_monitor --features rppal
+# Run Raspberry Pi examples with rppal feature
+cargo run --features rppal --bin rpi_basic_motor
+cargo run --features rppal --bin rpi_speed_control  
+cargo run --features rppal --bin rpi_encoder_monitor
+
+# Run Linux examples with linux-embedded-hal feature
+cargo run --features linux-embedded-hal --bin linux_basic_motor
+cargo run --features linux-embedded-hal --bin linux_speed_control
 ```
 
-**Note**: Examples require Raspberry Pi hardware with proper GPIO connections.
+**Note**: Examples require appropriate hardware with proper GPIO connections.
 
 ## API Overview
 
@@ -144,48 +161,12 @@ pub trait MotorDriver {
 }
 ```
 
-### HBridgeMotorDriver
-
-The main implementation supports multiple configurations:
-
-```rust
-// Single PWM configuration
-HBridgeMotorDriver::single_pwm(enable_pin, pwm_channel, max_duty);
-
-// Dual PWM configuration (for bidirectional control)
-HBridgeMotorDriver::dual_pwm(enable1, enable2, pwm1, pwm2, max_duty);
-
-// Dual PWM with quadrature encoder support
-HBridgeMotorDriver::dual_pwm_with_encoder(enable1, enable2, pwm1, pwm2, encoder_a, encoder_b, max_duty);
-```
-
-### MotorDriverWrapper (Builder Pattern)
-
-Alternative wrapper with builder pattern for more flexible configuration:
-
-```rust
-use motor_driver_hal::{MotorDriverWrapper, EnablePins, PwmChannels};
-
-let mut motor = MotorDriverWrapper::builder()
-    .with_enable_pins(EnablePins::Dual(en1, en2))
-    .with_pwm_channels(PwmChannels::Dual(pwm1, pwm2))
-    .with_max_duty(1000)
-    .build();
-```
-
 ### Speed Values
 
 Speed is controlled using signed 16-bit integers:
 - **Positive values**: Forward direction (0 to max_duty)
 - **Negative values**: Reverse direction (-max_duty to 0)
 - **Zero**: Motor stopped
-
-### Motor States
-
-1. **Uninitialized**: Fresh driver instance, not ready for use
-2. **Initialized**: Driver configured and ready, but motor disabled
-3. **Enabled**: Motor powered and ready to move
-4. **Disabled**: Motor power cut, safe state
 
 ### Motor Control Modes
 
@@ -210,14 +191,6 @@ This crate provides wrapper types to adapt platform-specific implementations to 
 
 - `GpioWrapper` - Wraps GPIO pins implementing `OutputPin`
 - `PwmWrapper` - Wraps PWM channels implementing `SetDutyCycle`
-
-### Adding Platform Support
-
-To use with your platform:
-
-1. Implement `embedded-hal::digital::OutputPin` for your GPIO pins
-2. Implement `embedded-hal::pwm::SetDutyCycle` for your PWM channels
-3. Create instances using the appropriate constructor methods
 
 ### Supported Platforms
 

@@ -4,32 +4,37 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "basic_motor"
-path = "src/bin/basic_motor.rs"
+name = "rpi_basic_motor"
+path = "src/bin/rpi_basic_motor.rs"
 
 [[bin]]
-name = "brake_test"
-path = "src/bin/brake_test.rs"
+name = "rpi_brake_test"
+path = "src/bin/rpi_brake_test.rs"
 
 [[bin]]
-name = "direction_control"
-path = "src/bin/direction_control.rs"
+name = "rpi_direction_control"
+path = "src/bin/rpi_direction_control.rs"
 
 [[bin]]
-name = "encoder_monitor"
-path = "src/bin/encoder_monitor.rs"
+name = "rpi_encoder_monitor"
+path = "src/bin/rpi_encoder_monitor.rs"
 
 [[bin]]
-name = "speed_control"
-path = "src/bin/speed_control.rs"
+name = "rpi_speed_control"
+path = "src/bin/rpi_speed_control.rs"
 
 [[bin]]
 name = "test"
 path = "src/bin/test.rs"
 
+[features]
+default = ["rppal"]
+rppal = ["motor-driver-hal/rppal", "dep:rppal"]
+linux = ["motor-driver-hal/linux-embedded-hal", "dep:linux-embedded-hal"]
 
 [dependencies]
-motor-driver-hal = { path = "..", features = ["rppal"] }
-rppal = "0.22.0"
+motor-driver-hal = { path = ".." }
+rppal = { version = "0.22.0", optional = true }
+linux-embedded-hal = { version = "0.4", optional = true }
 embedded-hal = "1.0.0"
 ctrlc = "3.4"
